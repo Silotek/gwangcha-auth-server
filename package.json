@@ -8,13 +8,14 @@
     "serve": "node dist/index.js",
     "dev": "nodemon --exec ts-node --files src/index.ts",
     "mailtest": "ts-node src/mail.ts",
-    "prisma:generate": "prisma generate"
+    "prisma:generate": "prisma generate --schema=./schema/prisma/schema.prisma"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@pothos/plugin-prisma": "^4.2.1",
     "@prisma/client": "^5.19.1",
     "argon2": "^0.41.1",
     "axios": "^1.7.7",

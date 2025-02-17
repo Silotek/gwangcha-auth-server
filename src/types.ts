@@ -28,6 +28,13 @@ export interface KakaoUserResponse {
       email: string;
       name: string;
       phone_number: string;
+      profile: {
+        nickname: string;
+        thumbnail_image_url: string;
+        profile_image_url: string;
+        is_default_image: boolean;
+        is_default_nickname: boolean;
+      };
     };
   };
 }

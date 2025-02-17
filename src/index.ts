@@ -166,6 +166,8 @@ const getUserFromRequest = async (req: Request<any, any, SignInRequest>) => {
             email: kakaoUser.data.kakao_account.email,
             name: kakaoUser.data.kakao_account.name,
             phone: kakaoUser.data.kakao_account.phone_number
+            // profileImageUrl:
+            //   kakaoUser.data.kakao_account.profile.profile_image_url
           }
         });
         return newUser;
@@ -196,6 +198,7 @@ const getUserFromRequest = async (req: Request<any, any, SignInRequest>) => {
             email: naverUser.email,
             name: naverUser.name,
             phone: naverUser.mobile_e164
+            // profileImageUrl: naverUser.profile_image
           }
         });
         return newUser;
