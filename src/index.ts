@@ -125,6 +125,46 @@ app.post(
   }
 );
 
+app.post(
+  "/reset-password",
+  [Validator.email, Validator.password],
+  async (
+    req: Request<
+      any,
+      any,
+      { email: string; password: string; authCode: string }
+    >,
+    res: Response
+  ) => {
+    const result = validationResult(req);
+    if (!result.isEmpty()) {
+      return res.status(400).json(result.array());
+    }
+
+    try {
+      const user = await prisma.user.findFirst({
+        where: { email: req.body.email }
+      });
+      if (!user) return res.status(400).json([ServerError.invalidCredential]);
+
+      const authCode = await redis.get(req.body.email);
+      if (req.body.authCode !== authCode) {
+        return res.status(400).json([ServerError.invalidAuthCode]);
+      }
+
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { password: await argon2.hash(req.body.password) }
+      });
+      redis.del(req.body.email);
+
+      res.json({ message: "비밀번호가 변경되었습니다." });
+    } catch {
+      return res.status(500).json({ message: "서버 오류입니다." });
+    }
+  }
+);
+
 const getUserFromRequest = async (req: Request<any, any, SignInRequest>) => {
   try {
     if (req.body.type === "email") {
@@ -275,17 +315,27 @@ app.post(
 app.post(
   "/email-verification/send",
   [Validator.email],
-  async (req: Request<any, any, { email: string }>, res: Response) => {
+  async (
+    req: Request<any, any, { email: string; isPasswordReset?: boolean }>,
+    res: Response
+  ) => {
     const result = validationResult(req);
     if (!result.isEmpty()) {
       return res.status(400).json(result.array());
     }
 
     try {
-      const user = await prisma.user.findFirst({
-        where: { email: req.body.email }
-      });
-      if (user) return res.status(400).json([ServerError.existingEmail]);
+      if (req.body.isPasswordReset === true) {
+        await prisma.user.findFirstOrThrow({
+          where: { email: req.body.email }
+        });
+      } else {
+        const user = await prisma.user.findFirst({
+          where: { email: req.body.email }
+        });
+
+        if (user) return res.status(400).json([ServerError.existingEmail]);
+      }
       // generate randomized auth code
       const authCode = generateRandomString(6);
       // set auth code to redis
