@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // src/index.js
+import NodeRSA from "node-rsa";
 import express, { Express, Request, Response } from "express";
 import dotenv from "dotenv";
 import argon2 from "argon2";
@@ -20,6 +21,7 @@ import {
 } from "types";
 import generateRandomString from "./generateRandomString";
 import { transporter, useEmailVerificationMailOptions } from "./mail";
+import { PrismaClientKnownRequestError } from "@prisma/client/runtime/library";
 
 const tokenGuard = (req: Request, res: Response, next: any) => {
   const token = req.headers.authorization?.split("Bearer ")[1];
@@ -165,7 +167,7 @@ app.post(
   }
 );
 
-const getUserFromRequest = async (req: Request<any, any, SignInRequest>) => {
+const getUserBySigningType = async (req: Request<any, any, SignInRequest>) => {
   try {
     if (req.body.type === "email") {
       Validator.email.run(req);
@@ -245,6 +247,62 @@ const getUserFromRequest = async (req: Request<any, any, SignInRequest>) => {
       }
       return user;
     }
+
+    if (req.body.type === "apple") {
+      const applePublicKeyResponse = await axios.get(
+        "https://appleid.apple.com/auth/keys"
+      );
+
+      const accessTokenHeader = req.body.accessToken.split(".")[0];
+      const decoededAccessTokenHeader = Buffer.from(
+        accessTokenHeader,
+        "base64"
+      ).toString("utf-8");
+      const accessTokenHeaderJson = JSON.parse(decoededAccessTokenHeader);
+      const applePublicKey = applePublicKeyResponse.data.keys.find(
+        (key: any) => key.kid === accessTokenHeaderJson.kid
+      );
+      if (!applePublicKey) return [ServerError.invalidCredential];
+
+      const key = new NodeRSA();
+      key.importKey(
+        {
+          n: Buffer.from(applePublicKey.n, "base64"),
+          e: Buffer.from(applePublicKey.e, "base64")
+        },
+        "components-public"
+      );
+      // Apple JWT Signature Verification
+      const signature = req.body.accessToken.split(".")[2];
+      const decodedSignature = Buffer.from(signature, "base64");
+      const decodedSignatureBuffer = Buffer.concat([
+        Buffer.from(accessTokenHeader + "."),
+        Buffer.from(req.body.accessToken.split(".")[1])
+      ]);
+      const isSignatureValid = key.verify(
+        decodedSignatureBuffer,
+        decodedSignature
+      );
+
+      if (!isSignatureValid) return [ServerError.invalidCredential];
+      const appleUser = JSON.parse(
+        Buffer.from(req.body.accessToken.split(".")[1], "base64").toString()
+      );
+      const user = await prisma.user.findFirst({
+        where: { email: appleUser.email }
+      });
+      if (!user) {
+        const newUser = await prisma.user.create({
+          data: {
+            email: appleUser.email,
+            name: appleUser.name || "",
+            phone: appleUser.phone || ""
+          }
+        });
+        return newUser;
+      }
+      return user;
+    }
   } catch (e) {
     console.error(e);
     return [ServerError.unknown];
@@ -277,7 +335,7 @@ const getUserFromRequest = async (req: Request<any, any, SignInRequest>) => {
 app.post(
   "/signin",
   async (req: Request<any, any, SignInRequest>, res: Response) => {
-    const userOrError = await getUserFromRequest(req);
+    const userOrError = await getUserBySigningType(req);
     // Error handling
     if (Array.isArray(userOrError)) return res.status(400).json(userOrError);
     // type guard & aliasing
@@ -288,6 +346,70 @@ app.post(
       ...DTO.user(user),
       accessToken: createToken(user)
     });
+  }
+);
+
+app.delete(
+  "/user",
+  tokenGuard,
+  async (
+    req: Request<
+      any,
+      any,
+      {
+        password: string;
+        subPhone: string;
+        refundBankName: string;
+        refundAccountNumber: string;
+        refundAccountHolder: string;
+        reason: string;
+      }
+    >,
+    res: Response
+  ) => {
+    try {
+      const user = await prisma.user.findFirstOrThrow({
+        where: {
+          id: req.userId
+        }
+      });
+      const isValidPassword = await argon2.verify(
+        user.password || "",
+        req.body.password
+      );
+      if (!isValidPassword) {
+        return res.status(400).json([ServerError.invalidCredential]);
+      }
+
+      const deletedUser = await prisma.deletedUser.create({
+        data: {
+          id: user.id,
+          user: { connect: { id: user.id } },
+          name: user.name,
+          email: user.email,
+          phone: user.phone || "",
+          subPhone: req.body.subPhone,
+          refundBankName: req.body.refundBankName,
+          refundAccountNumber: req.body.refundAccountNumber,
+          refundAccountHolder: req.body.refundAccountHolder,
+          reason: req.body.reason
+        }
+      });
+
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { deletedUserId: deletedUser.id }
+      });
+
+      res.json({ message: "회원 탈퇴가 완료되었습니다." });
+    } catch (e) {
+      console.log(e);
+      if (e instanceof PrismaClientKnownRequestError) {
+        return res.status(400).json([ServerError.invalidCredential]);
+      }
+      // console.error(e);
+      return res.status(500).json({ message: "서버 오류입니다." });
+    }
   }
 );
 

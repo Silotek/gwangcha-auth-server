@@ -1,4 +1,4 @@
-export type SigningStrategy = "email" | "google" | "kakao" | "naver";
+export type SigningStrategy = "email" | "google" | "kakao" | "naver" | "apple";
 
 export type EmailSignInRequest = {
   email: string;
@@ -10,7 +10,7 @@ export type OAuthSignInRequest = {
 
 export type SignInRequest =
   | ({ type: "email" } & EmailSignInRequest)
-  | ({ type: "google" | "kakao" | "naver" } & OAuthSignInRequest);
+  | ({ type: "google" | "kakao" | "naver" | "apple" } & OAuthSignInRequest);
 
 export type SignUpRequest = {
   name: string;
