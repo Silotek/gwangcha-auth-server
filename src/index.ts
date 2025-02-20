@@ -296,7 +296,7 @@ const getUserBySigningType = async (req: Request<any, any, SignInRequest>) => {
           data: {
             email: appleUser.email,
             name: appleUser.name || "",
-            phone: appleUser.phone || ""
+            phone: null
           }
         });
         return newUser;
